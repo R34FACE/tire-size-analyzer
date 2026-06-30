@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="売上明細PDFからタイヤサイズ別の売上本数を集計するブラウザアプリ" />
+  <title>タイヤサイズ集計</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">TIRE SIZE ANALYZER</p>
+      <h1>タイヤサイズ別 売上集計</h1>
+      <p class="subtitle">売上明細PDFを読み込み、サイズごとの売上本数を自動集計します。</p>
+    </div>
+    <div class="privacy-badge">PDFは端末内で処理</div>
+  </header>
+
+  <main class="container">
+    <section class="panel upload-panel">
+      <div id="dropZone" class="drop-zone" tabindex="0" role="button" aria-label="PDFを選択">
+        <div class="drop-icon">PDF</div>
+        <div>
+          <strong>PDFをここにドラッグ＆ドロップ</strong>
+          <p>またはクリックしてファイルを選択（複数可）</p>
+        </div>
+        <input id="fileInput" type="file" accept="application/pdf,.pdf" multiple hidden />
+      </div>
+
+      <div id="fileList" class="file-list empty">PDFが選択されていません</div>
+
+      <details class="advanced-settings">
+        <summary>読み取り設定</summary>
+        <div class="settings-grid">
+          <label>
+            描画倍率
+            <select id="renderScale">
+              <option value="3">標準</option>
+              <option value="3.5" selected>高精度</option>
+              <option value="4">最高精度</option>
+            </select>
+          </label>
+          <label>
+            数量列の位置（ページ幅に対する%）
+            <input id="quantityX" type="number" value="64.3" min="55" max="75" step="0.1" />
+          </label>
+          <label>
+            数量列の許容幅（±%）
+            <input id="quantityTolerance" type="number" value="2.5" min="0.5" max="8" step="0.1" />
+          </label>
+          <label class="checkbox-label">
+            <input id="enhanceImage" type="checkbox" checked />
+            文字を見やすく補正する
+          </label>
+        </div>
+        <p class="setting-note">添付サンプルの帳票レイアウトに合わせた初期値です。帳票形式が変わった場合だけ調整してください。</p>
+      </details>
+
+      <div class="actions">
+        <button id="analyzeBtn" class="primary" disabled>PDFを集計する</button>
+        <button id="clearBtn" class="secondary" disabled>クリア</button>
+      </div>
+
+      <div id="progressArea" class="progress-area hidden" aria-live="polite">
+        <div class="progress-head">
+          <span id="progressText">準備中...</span>
+          <span id="progressPercent">0%</span>
+        </div>
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <p id="progressDetail" class="progress-detail"></p>
+      </div>
+
+      <div id="errorBox" class="message error hidden"></div>
+    </section>
+
+    <section id="resultSection" class="hidden">
+      <div class="summary-grid">
+        <article class="summary-card"><span>サイズ種類</span><strong id="sizeCount">0</strong></article>
+        <article class="summary-card"><span>合計本数</span><strong id="totalQty">0</strong></article>
+        <article class="summary-card"><span>抽出明細</span><strong id="rowCount">0</strong></article>
+        <article class="summary-card warning-card"><span>要確認</span><strong id="warningCount">0</strong></article>
+      </div>
+
+      <section class="panel result-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">AGGREGATION</p>
+            <h2>サイズ別集計</h2>
+          </div>
+          <div class="result-actions">
+            <input id="sizeFilter" type="search" placeholder="サイズ検索 例：155/65R14" />
+            <button id="exportSummaryBtn" class="secondary">集計CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>タイヤサイズ</th><th class="number">売上本数</th><th class="number">構成比</th></tr></thead>
+            <tbody id="summaryBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel detail-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">DETAILS</p>
+            <h2>抽出明細・修正</h2>
+            <p class="section-note">OCRの誤読があれば、サイズまたは数量を直接修正できます。集計は自動で再計算されます。</p>
+          </div>
+          <button id="exportDetailBtn" class="secondary">明細CSV</button>
+        </div>
+        <div class="table-wrap detail-wrap">
+          <table>
+            <thead><tr><th>ファイル</th><th>頁</th><th>タイヤサイズ</th><th class="number">数量</th><th class="number">信頼度</th><th></th></tr></thead>
+            <tbody id="detailBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="warningPanel" class="panel warning-panel hidden">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">REVIEW</p>
+            <h2>要確認行</h2>
+            <p class="section-note">サイズらしき文字は検出しましたが、数量を特定できなかった行です。</p>
+          </div>
+        </div>
+        <div id="warningList" class="warning-list"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer>固定レイアウトの「単品別売上集計リスト」向け MVP</footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
