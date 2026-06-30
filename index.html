@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="売上明細PDFからタイヤサイズ別の売上本数を集計するブラウザアプリ" />
-  <title>タイヤサイズ集計</title>
+  <meta name="description" content="売上明細PDFからタイヤサイズ別・商品別の売上本数を集計するブラウザアプリ" />
+  <title>タイヤサイズ・商品別集計</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="app-header">
     <div>
-      <p class="eyebrow">TIRE SIZE ANALYZER</p>
-      <h1>タイヤサイズ別 売上集計</h1>
-      <p class="subtitle">売上明細PDFを読み込み、サイズごとの売上本数を自動集計します。</p>
+      <p class="eyebrow">TIRE SALES ANALYZER</p>
+      <h1>タイヤサイズ・商品別 売上集計</h1>
+      <p class="subtitle">売上明細PDFを読み込み、サイズごとに商品名と売上本数を自動集計します。</p>
     </div>
     <div class="privacy-badge">PDFは端末内で処理</div>
   </header>
@@ -86,16 +86,17 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">AGGREGATION</p>
-            <h2>サイズ別集計</h2>
+            <h2>サイズ・商品別集計</h2>
+            <p class="section-note">同じサイズ内で、商品ごとの販売本数とサイズ合計を表示します。</p>
           </div>
           <div class="result-actions">
-            <input id="sizeFilter" type="search" placeholder="サイズ検索 例：155/65R14" />
+            <input id="sizeFilter" type="search" placeholder="サイズ・商品名・商品コード検索" />
             <button id="exportSummaryBtn" class="secondary">集計CSV</button>
           </div>
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>タイヤサイズ</th><th class="number">売上本数</th><th class="number">構成比</th></tr></thead>
+            <thead><tr><th>タイヤサイズ</th><th>商品名</th><th class="number">商品別本数</th><th class="number">サイズ合計</th><th class="number">構成比</th></tr></thead>
             <tbody id="summaryBody"></tbody>
           </table>
         </div>
@@ -106,13 +107,13 @@
           <div>
             <p class="eyebrow">DETAILS</p>
             <h2>抽出明細・修正</h2>
-            <p class="section-note">OCRの誤読があれば、サイズまたは数量を直接修正できます。集計は自動で再計算されます。</p>
+            <p class="section-note">商品名を一度修正すると、商品コードに紐づけてこのブラウザへ保存し、次回以降も自動反映します。</p>
           </div>
           <button id="exportDetailBtn" class="secondary">明細CSV</button>
         </div>
         <div class="table-wrap detail-wrap">
           <table>
-            <thead><tr><th>ファイル</th><th>頁</th><th>タイヤサイズ</th><th class="number">数量</th><th class="number">信頼度</th><th></th></tr></thead>
+            <thead><tr><th>ファイル</th><th>頁</th><th>商品コード</th><th>商品名</th><th>タイヤサイズ</th><th class="number">数量</th><th class="number">信頼度</th><th></th></tr></thead>
             <tbody id="detailBody"></tbody>
           </table>
         </div>
@@ -123,7 +124,7 @@
           <div>
             <p class="eyebrow">REVIEW</p>
             <h2>要確認行</h2>
-            <p class="section-note">サイズらしき文字は検出しましたが、数量を特定できなかった行です。</p>
+            <p class="section-note">数量または商品名・商品コードを特定できなかった行です。</p>
           </div>
         </div>
         <div id="warningList" class="warning-list"></div>
@@ -131,7 +132,7 @@
     </section>
   </main>
 
-  <footer>固定レイアウトの「単品別売上集計リスト」向け MVP</footer>
+  <footer>固定レイアウトの「単品別売上集計リスト」向け Version 2</footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>

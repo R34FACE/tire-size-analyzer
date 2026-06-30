@@ -5,6 +5,44 @@
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
+  const PRODUCT_DICTIONARY_KEY = 'tire-size-analyzer-product-dictionary-v1';
+  const BUILTIN_PRODUCT_NAMES = {
+    '01642920': 'オートバックス マックスラン エクセラ',
+    '01642921': 'オートバックス マックスラン エクセラ',
+    '01642923': 'オートバックス マックスラン エクセラ',
+    '01642924': 'オートバックス マックスラン エクセラ',
+    '01642925': 'オートバックス マックスラン エクセラ',
+    '01642926': 'オートバックス マックスラン エクセラ',
+    '01642927': 'オートバックス マックスラン エクセラ',
+    '01642928': 'オートバックス マックスラン エクセラ',
+    '01642929': 'オートバックス マックスラン エクセラ',
+    '01642932': 'オートバックス マックスラン エクセラ',
+    '01642934': 'オートバックス マックスラン エクセラ',
+    '01642935': 'オートバックス マックスラン エクセラ',
+    '01642939': 'オートバックス マックスラン エクセラ',
+    '01319975': 'ファルケン シンセラ SN832i',
+    '01319988': 'ファルケン シンセラ SN832i',
+    '01506300': 'ダンロップ エナセーブ EC204',
+    '01506326': 'ダンロップ エナセーブ EC204',
+    '01838701': 'ダンロップ エナセーブ EC205',
+    '01838712': 'ダンロップ エナセーブ EC205',
+    '01838715': 'ダンロップ エナセーブ EC205',
+    '01838717': 'ダンロップ エナセーブ EC205',
+    '01838721': 'ダンロップ エナセーブ EC205',
+    '01838722': 'ダンロップ エナセーブ EC205',
+    '01838723': 'ダンロップ エナセーブ EC205',
+    '01838727': 'ダンロップ エナセーブ EC205',
+    '01838728': 'ダンロップ エナセーブ EC205',
+    '01838732': 'ダンロップ エナセーブ EC205',
+    '01577473': 'ダンロップ エナセーブ RV505',
+    '01367685': 'ダンロップ エナセーブ VAN01',
+    '01771342': 'ダンロップ シンクロウェザー',
+    '01831015': 'ダンロップ シンクロウェザー',
+    '01676476': 'ヨコハマ ブルーアースES ES32',
+    '01676484': 'ヨコハマ ブルーアースES ES32',
+    '01676507': 'ヨコハマ ブルーアースES ES32',
+  };
+
   const els = {
     dropZone: document.getElementById('dropZone'),
     fileInput: document.getElementById('fileInput'),
@@ -40,6 +78,7 @@
     rows: [],
     warnings: [],
     running: false,
+    productDictionary: loadProductDictionary(),
   };
 
   const SIZE_RE = /(\d{3})\s*[\/／]\s*(\d{2})\s*[RＲ]\s*(\d{2})/i;
@@ -161,8 +200,7 @@
           if (els.enhanceImage.checked) enhanceCanvas(crop.canvas);
 
           const pageBase = completed / totalPages;
-          const pageWeight = 1 / totalPages;
-          setProgress(pageBase * 100, `${escapeText(file.name)} - ${pageNumber}/${pdf.numPages}頁`, '文字を読み取っています');
+          setProgress(pageBase * 100, `${escapeText(file.name)} - ${pageNumber}/${pdf.numPages}頁`, '商品名・サイズ・数量を読み取っています');
 
           const result = await worker.recognize(crop.canvas, {}, { text: true, tsv: true });
           const parsed = parseTsv(
@@ -270,6 +308,7 @@
       if (!sizeMatch) continue;
 
       const size = `${sizeMatch[1]}/${sizeMatch[2]}R${sizeMatch[3]}`;
+      const sizeSpan = findSizeWordSpan(words);
       const quantityCandidates = words
         .filter((word) => /^\d{1,5}$/.test(toHalfWidth(word.text)))
         .map((word) => ({
@@ -281,19 +320,29 @@
         .sort((a, b) => Math.abs(a.xRatio - quantityRatio) - Math.abs(b.xRatio - quantityRatio));
 
       if (!quantityCandidates.length) {
-        warnings.push({ fileName, pageNumber, size, rawLine });
+        warnings.push({ type: 'quantity', fileName, pageNumber, size, rawLine });
         continue;
       }
 
       const quantityWord = quantityCandidates[0];
-      const sizeWords = words.filter((word) => SIZE_RE.test(normalizeOcr(word.text)));
+      const sizeWords = sizeSpan ? words.slice(sizeSpan.start, sizeSpan.end + 1) : words.filter((word) => SIZE_RE.test(normalizeOcr(word.text)));
       const sizeConf = sizeWords.length ? average(sizeWords.map((word) => word.conf)) : 70;
-      const confidence = Math.max(0, Math.min(100, Math.round((sizeConf + quantityWord.conf) / 2)));
+      const productInfo = extractProductInfo(words, sizeSpan);
+      const productName = resolveProductName(productInfo.productCode, productInfo.ocrProductName);
+      const productConf = productInfo.productWords.length ? average(productInfo.productWords.map((word) => word.conf)) : 50;
+      const confidence = Math.max(0, Math.min(100, Math.round((sizeConf + quantityWord.conf + productConf) / 3)));
+
+      if (!productInfo.productCode || !productName || productName === '商品名未検出') {
+        warnings.push({ type: 'product', fileName, pageNumber, size, rawLine });
+      }
 
       rows.push({
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
         fileName,
         pageNumber,
+        productCode: productInfo.productCode,
+        productName,
+        ocrProductName: productInfo.ocrProductName,
         size,
         quantity: quantityWord.value,
         confidence,
@@ -301,6 +350,70 @@
       });
     }
     return { rows, warnings };
+  }
+
+  function findSizeWordSpan(words) {
+    for (let length = 1; length <= Math.min(4, words.length); length += 1) {
+      for (let start = 0; start <= words.length - length; start += 1) {
+        const end = start + length - 1;
+        const candidate = normalizeOcr(words.slice(start, end + 1).map((word) => word.text).join(''));
+        if (SIZE_RE.test(candidate)) return { start, end };
+      }
+    }
+    return null;
+  }
+
+  function extractProductInfo(words, sizeSpan) {
+    const sizeStart = sizeSpan ? sizeSpan.start : words.length;
+    let codeIndex = -1;
+    let productCode = '';
+
+    for (let i = 0; i < sizeStart; i += 1) {
+      const compact = toHalfWidth(words[i].text).replace(/\s/g, '');
+      const digits = compact.replace(/\D/g, '');
+      if (digits.length === 8 && digits.length / Math.max(compact.length, 1) >= 0.75) {
+        codeIndex = i;
+        productCode = digits;
+        break;
+      }
+    }
+
+    const productWords = words.slice(codeIndex >= 0 ? codeIndex + 1 : 0, sizeStart);
+    const ocrProductName = cleanProductName(productWords.map((word) => word.text).join(' '));
+    return { productCode, ocrProductName, productWords };
+  }
+
+  function cleanProductName(value) {
+    return String(value || '')
+      .normalize('NFKC')
+      .replace(/[\t\r\n]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s,.;:|・\/\\_-]+|[\s,.;:|・\/\\_-]+$/g, '')
+      .trim();
+  }
+
+  function resolveProductName(productCode, ocrName) {
+    const saved = productCode ? state.productDictionary[productCode] : '';
+    const builtIn = productCode ? BUILTIN_PRODUCT_NAMES[productCode] : '';
+    return cleanProductName(saved || builtIn || ocrName) || '商品名未検出';
+  }
+
+  function loadProductDictionary() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(PRODUCT_DICTIONARY_KEY) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (error) {
+      console.warn('商品名辞書を読み込めませんでした', error);
+      return {};
+    }
+  }
+
+  function saveProductDictionary() {
+    try {
+      localStorage.setItem(PRODUCT_DICTIONARY_KEY, JSON.stringify(state.productDictionary));
+    } catch (error) {
+      console.warn('商品名辞書を保存できませんでした', error);
+    }
   }
 
   function normalizeOcr(value) {
@@ -320,49 +433,108 @@
     renderSummary();
     renderDetails();
     renderWarnings();
-    const summary = aggregateRows();
+    const summary = aggregateRowsByProduct();
     els.sizeCount.textContent = summary.length.toLocaleString('ja-JP');
     els.totalQty.textContent = state.rows.reduce((sum, row) => sum + validQuantity(row.quantity), 0).toLocaleString('ja-JP');
     els.rowCount.textContent = state.rows.length.toLocaleString('ja-JP');
     els.warningCount.textContent = state.warnings.length.toLocaleString('ja-JP');
   }
 
-  function aggregateRows() {
-    const map = new Map();
+  function aggregateRowsByProduct() {
+    const sizeMap = new Map();
     for (const row of state.rows) {
       const size = standardizeSize(row.size);
       const quantity = validQuantity(row.quantity);
       if (!size || quantity < 0) continue;
-      map.set(size, (map.get(size) || 0) + quantity);
+
+      if (!sizeMap.has(size)) sizeMap.set(size, { size, quantity: 0, products: new Map() });
+      const sizeGroup = sizeMap.get(size);
+      sizeGroup.quantity += quantity;
+
+      const productName = cleanProductName(row.productName) || '商品名未検出';
+      const productKey = row.productCode ? `code:${row.productCode}` : `name:${normalizeProductKey(productName)}`;
+      if (!sizeGroup.products.has(productKey)) {
+        sizeGroup.products.set(productKey, {
+          productCode: row.productCode || '',
+          productName,
+          quantity: 0,
+          confidence: row.confidence || 0,
+        });
+      }
+      const product = sizeGroup.products.get(productKey);
+      product.quantity += quantity;
+      if ((!product.productName || product.productName === '商品名未検出') && productName !== '商品名未検出') {
+        product.productName = productName;
+      } else if ((row.confidence || 0) > product.confidence && productName !== '商品名未検出') {
+        product.productName = productName;
+        product.confidence = row.confidence || 0;
+      }
     }
-    return [...map.entries()]
-      .map(([size, quantity]) => ({ size, quantity }))
+
+    return [...sizeMap.values()]
+      .map((group) => ({
+        size: group.size,
+        quantity: group.quantity,
+        products: [...group.products.values()].sort((a, b) => b.quantity - a.quantity || a.productName.localeCompare(b.productName, 'ja')),
+      }))
       .sort((a, b) => compareSizes(a.size, b.size));
   }
 
+  function normalizeProductKey(value) {
+    return cleanProductName(value).toUpperCase().replace(/[\s・･\-ー_\/\\.,'"`]/g, '');
+  }
+
   function renderSummary() {
-    const filter = normalizeOcr(els.sizeFilter.value || '');
-    const summary = aggregateRows().filter((row) => !filter || row.size.includes(filter));
+    const rawFilter = (els.sizeFilter.value || '').trim();
+    const normalizedSizeFilter = normalizeOcr(rawFilter);
+    const normalizedProductFilter = normalizeProductKey(rawFilter);
+    const allGroups = aggregateRowsByProduct();
     const total = state.rows.reduce((sum, row) => sum + validQuantity(row.quantity), 0);
-    if (!summary.length) {
-      els.summaryBody.innerHTML = '<tr><td colspan="3" class="empty-row">該当するサイズがありません</td></tr>';
+
+    const groups = allGroups.map((group) => {
+      if (!rawFilter) return group;
+      const sizeMatches = group.size.includes(normalizedSizeFilter);
+      const products = sizeMatches
+        ? group.products
+        : group.products.filter((product) =>
+          normalizeProductKey(product.productName).includes(normalizedProductFilter) || product.productCode.includes(rawFilter)
+        );
+      return products.length ? { ...group, products } : null;
+    }).filter(Boolean);
+
+    if (!groups.length) {
+      els.summaryBody.innerHTML = '<tr><td colspan="5" class="empty-row">該当するサイズ・商品がありません</td></tr>';
       return;
     }
-    els.summaryBody.innerHTML = summary.map((row) => {
-      const ratio = total ? (row.quantity / total * 100).toFixed(1) : '0.0';
-      return `<tr><td class="size-cell">${escapeHtml(row.size)}</td><td class="number"><strong>${row.quantity.toLocaleString('ja-JP')}</strong></td><td class="number">${ratio}%</td></tr>`;
+
+    els.summaryBody.innerHTML = groups.map((group) => {
+      const ratio = total ? (group.quantity / total * 100).toFixed(1) : '0.0';
+      const rowCount = Math.max(group.products.length, 1);
+      return group.products.map((product, index) => `
+        <tr class="${index === 0 ? 'size-group-start' : ''}">
+          ${index === 0 ? `<td class="size-cell size-group-cell" rowspan="${rowCount}">${escapeHtml(group.size)}</td>` : ''}
+          <td>
+            <div class="product-name">${escapeHtml(product.productName)}</div>
+            ${product.productCode ? `<div class="product-code">商品コード ${escapeHtml(product.productCode)}</div>` : ''}
+          </td>
+          <td class="number"><strong>${product.quantity.toLocaleString('ja-JP')}</strong></td>
+          ${index === 0 ? `<td class="number size-total" rowspan="${rowCount}"><strong>${group.quantity.toLocaleString('ja-JP')}</strong></td><td class="number" rowspan="${rowCount}">${ratio}%</td>` : ''}
+        </tr>
+      `).join('');
     }).join('');
   }
 
   function renderDetails() {
     if (!state.rows.length) {
-      els.detailBody.innerHTML = '<tr><td colspan="6" class="empty-row">抽出明細がありません</td></tr>';
+      els.detailBody.innerHTML = '<tr><td colspan="8" class="empty-row">抽出明細がありません</td></tr>';
       return;
     }
     els.detailBody.innerHTML = state.rows.map((row) => `
       <tr data-id="${escapeHtml(row.id)}">
-        <td title="${escapeHtml(row.fileName)}">${escapeHtml(shorten(row.fileName, 24))}</td>
+        <td title="${escapeHtml(row.fileName)}">${escapeHtml(shorten(row.fileName, 20))}</td>
         <td>${row.pageNumber}</td>
+        <td class="code-cell">${escapeHtml(row.productCode || '未検出')}</td>
+        <td><input class="detail-input product-input" value="${escapeHtml(row.productName)}" aria-label="商品名" /></td>
         <td><input class="detail-input size-input" value="${escapeHtml(row.size)}" aria-label="タイヤサイズ" /></td>
         <td class="number"><input class="detail-input qty-input" type="number" min="0" step="1" value="${validQuantity(row.quantity)}" aria-label="数量" /></td>
         <td class="number ${row.confidence < 75 ? 'confidence-low' : ''}">${row.confidence}%</td>
@@ -372,6 +544,7 @@
 
     els.detailBody.querySelectorAll('tr[data-id]').forEach((tr) => {
       const id = tr.dataset.id;
+      tr.querySelector('.product-input').addEventListener('change', (e) => updateRow(id, { productName: cleanProductName(e.target.value) || '商品名未検出' }));
       tr.querySelector('.size-input').addEventListener('change', (e) => updateRow(id, { size: standardizeSize(e.target.value) || e.target.value.trim() }));
       tr.querySelector('.qty-input').addEventListener('change', (e) => updateRow(id, { quantity: validQuantity(e.target.value) }));
       tr.querySelector('.delete-btn').addEventListener('click', () => {
@@ -384,7 +557,23 @@
   function updateRow(id, patch) {
     const row = state.rows.find((item) => item.id === id);
     if (!row) return;
-    Object.assign(row, patch);
+
+    if (Object.prototype.hasOwnProperty.call(patch, 'productName')) {
+      const productName = cleanProductName(patch.productName) || '商品名未検出';
+      if (row.productCode) {
+        state.productDictionary[row.productCode] = productName;
+        saveProductDictionary();
+        state.rows.forEach((item) => {
+          if (item.productCode === row.productCode) item.productName = productName;
+        });
+      } else {
+        row.productName = productName;
+      }
+    }
+
+    const otherPatch = { ...patch };
+    delete otherPatch.productName;
+    Object.assign(row, otherPatch);
     renderAll();
   }
 
@@ -397,25 +586,32 @@
     els.warningPanel.classList.remove('hidden');
     els.warningList.innerHTML = state.warnings.map((warning) => `
       <div class="warning-item">
-        <strong>${escapeHtml(warning.fileName)} / ${warning.pageNumber}頁 / ${escapeHtml(warning.size)}</strong><br />
+        <strong>${warning.type === 'product' ? '商品名・商品コード要確認' : '数量要確認'}：</strong>
+        ${escapeHtml(warning.fileName)} / ${warning.pageNumber}頁 / ${escapeHtml(warning.size)}<br />
         <code>${escapeHtml(warning.rawLine)}</code>
       </div>
     `).join('');
   }
 
   function exportSummaryCsv() {
-    const rows = aggregateRows();
-    downloadCsv('タイヤサイズ別集計.csv', [
-      ['タイヤサイズ', '売上本数'],
-      ...rows.map((row) => [row.size, row.quantity]),
-      ['合計', rows.reduce((sum, row) => sum + row.quantity, 0)],
+    const groups = aggregateRowsByProduct();
+    const dataRows = [];
+    for (const group of groups) {
+      for (const product of group.products) {
+        dataRows.push([group.size, product.productCode, product.productName, product.quantity, group.quantity]);
+      }
+    }
+    downloadCsv('タイヤサイズ商品別集計.csv', [
+      ['タイヤサイズ', '商品コード', '商品名', '商品別売上本数', 'サイズ合計'],
+      ...dataRows,
+      ['全サイズ合計', '', '', groups.reduce((sum, group) => sum + group.quantity, 0), ''],
     ]);
   }
 
   function exportDetailCsv() {
     downloadCsv('タイヤ売上抽出明細.csv', [
-      ['ファイル名', 'ページ', 'タイヤサイズ', '売上数量', 'OCR信頼度', 'OCR原文'],
-      ...state.rows.map((row) => [row.fileName, row.pageNumber, row.size, validQuantity(row.quantity), row.confidence, row.rawLine]),
+      ['ファイル名', 'ページ', '商品コード', '商品名', 'タイヤサイズ', '売上数量', 'OCR信頼度', 'OCR原文'],
+      ...state.rows.map((row) => [row.fileName, row.pageNumber, row.productCode, row.productName, row.size, validQuantity(row.quantity), row.confidence, row.rawLine]),
     ]);
   }
 

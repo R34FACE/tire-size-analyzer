@@ -132,3 +132,15 @@ footer { padding: 22px; color: #7b858e; text-align: center; font-size: 12px; }
   .actions { flex-direction: column; }
   .actions button { width: 100%; }
 }
+
+/* Version 2: サイズ内の商品別表示 */
+.result-panel table { min-width: 820px; }
+.detail-panel table { min-width: 1180px; }
+.product-name { font-weight: 750; }
+.product-code { margin-top: 3px; color: var(--muted); font-size: 11px; letter-spacing: .02em; }
+.code-cell { color: #4d5861; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+.product-input { width: 300px; }
+.size-group-cell { vertical-align: top; background: #fff8f3; }
+.size-total { vertical-align: middle; background: #fffaf6; }
+.size-group-start td { border-top: 2px solid #cfd6dc; }
+.size-group-start:first-child td { border-top: 0; }
