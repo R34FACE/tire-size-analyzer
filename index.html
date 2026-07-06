@@ -12,7 +12,7 @@
     <div>
       <p class="eyebrow">TIRE SALES ANALYZER</p>
       <h1>タイヤサイズ・商品別 売上集計</h1>
-      <p class="subtitle">売上明細PDFを読み込み、サイズごとに商品名と売上本数を自動集計します。</p>
+      <p class="subtitle">売上明細PDFを読み込み、サイズごとに商品名と売上本数を自動集計します。修正内容は保存・復元できます。</p>
     </div>
     <div class="privacy-badge">PDFは端末内で処理</div>
   </header>
@@ -62,6 +62,14 @@
         <button id="clearBtn" class="secondary" disabled>クリア</button>
       </div>
 
+      <div class="save-actions" aria-live="polite">
+        <button id="saveWorkBtn" class="secondary" disabled>修正内容を保存</button>
+        <button id="restoreWorkBtn" class="secondary" disabled>保存データを復元</button>
+        <button id="deleteSavedWorkBtn" class="danger-secondary" disabled>保存データを削除</button>
+        <span id="saveStatus" class="save-status">保存データなし</span>
+      </div>
+      <p class="save-note">商品名の辞書だけでなく、サイズ修正・数量修正・削除した行・抽出明細まで保存できます。</p>
+
       <div id="progressArea" class="progress-area hidden" aria-live="polite">
         <div class="progress-head">
           <span id="progressText">準備中...</span>
@@ -107,7 +115,7 @@
           <div>
             <p class="eyebrow">DETAILS</p>
             <h2>抽出明細・修正</h2>
-            <p class="section-note">商品名を一度修正すると、商品コードに紐づけてこのブラウザへ保存し、次回以降も自動反映します。</p>
+            <p class="section-note">商品名・サイズ・数量を修正できます。修正後は自動保存されるため、ブラウザを閉じても復元できます。</p>
           </div>
           <button id="exportDetailBtn" class="secondary">明細CSV</button>
         </div>
@@ -132,7 +140,7 @@
     </section>
   </main>
 
-  <footer>固定レイアウトの「単品別売上集計リスト」向け Version 2</footer>
+  <footer>固定レイアウトの「単品別売上集計リスト」向け Version 3</footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>

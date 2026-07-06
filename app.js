@@ -6,6 +6,7 @@
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
   const PRODUCT_DICTIONARY_KEY = 'tire-size-analyzer-product-dictionary-v1';
+  const WORK_STATE_KEY = 'tire-size-analyzer-work-state-v1';
   const BUILTIN_PRODUCT_NAMES = {
     '01642920': 'オートバックス マックスラン エクセラ',
     '01642921': 'オートバックス マックスラン エクセラ',
@@ -71,6 +72,10 @@
     quantityX: document.getElementById('quantityX'),
     quantityTolerance: document.getElementById('quantityTolerance'),
     enhanceImage: document.getElementById('enhanceImage'),
+    saveWorkBtn: document.getElementById('saveWorkBtn'),
+    restoreWorkBtn: document.getElementById('restoreWorkBtn'),
+    deleteSavedWorkBtn: document.getElementById('deleteSavedWorkBtn'),
+    saveStatus: document.getElementById('saveStatus'),
   };
 
   const state = {
@@ -79,6 +84,7 @@
     warnings: [],
     running: false,
     productDictionary: loadProductDictionary(),
+    lastSavedAt: null,
   };
 
   const SIZE_RE = /(\d{3})\s*[\/／]\s*(\d{2})\s*[RＲ]\s*(\d{2})/i;
@@ -109,6 +115,10 @@
   els.exportSummaryBtn.addEventListener('click', exportSummaryCsv);
   els.exportDetailBtn.addEventListener('click', exportDetailCsv);
   els.sizeFilter.addEventListener('input', renderSummary);
+  els.saveWorkBtn.addEventListener('click', () => saveWorkState('修正内容を保存しました'));
+  els.restoreWorkBtn.addEventListener('click', restoreWorkState);
+  els.deleteSavedWorkBtn.addEventListener('click', deleteSavedWorkState);
+  updateSaveControls();
 
   function setFiles(files) {
     const pdfs = files.filter((file) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
@@ -117,6 +127,7 @@
     renderFileList();
     els.analyzeBtn.disabled = pdfs.length === 0 || state.running;
     els.clearBtn.disabled = pdfs.length === 0 || state.running;
+    updateSaveControls();
     hideError();
   }
 
@@ -142,6 +153,8 @@
     els.clearBtn.disabled = true;
     els.resultSection.classList.add('hidden');
     els.progressArea.classList.add('hidden');
+    setSaveStatusFromStorage();
+    updateSaveControls();
     hideError();
   }
 
@@ -149,6 +162,7 @@
     if (!state.files.length || state.running) return;
 
     state.running = true;
+    updateSaveControls();
     state.rows = [];
     state.warnings = [];
     els.analyzeBtn.disabled = true;
@@ -230,6 +244,7 @@
 
       renderAll();
       els.resultSection.classList.remove('hidden');
+      saveWorkState('OCR結果を自動保存しました');
       setProgress(100, '集計が完了しました', `${state.rows.length}行を抽出しました`);
     } catch (error) {
       console.error(error);
@@ -239,6 +254,7 @@
       state.running = false;
       els.analyzeBtn.disabled = state.files.length === 0;
       els.clearBtn.disabled = state.files.length === 0;
+      updateSaveControls();
     }
   }
 
@@ -550,6 +566,7 @@
       tr.querySelector('.delete-btn').addEventListener('click', () => {
         state.rows = state.rows.filter((row) => row.id !== id);
         renderAll();
+        saveWorkState('削除内容を自動保存しました');
       });
     });
   }
@@ -575,6 +592,180 @@
     delete otherPatch.productName;
     Object.assign(row, otherPatch);
     renderAll();
+    saveWorkState('修正内容を自動保存しました');
+  }
+
+
+  function makeWorkPayload() {
+    return {
+      version: 3,
+      savedAt: new Date().toISOString(),
+      sourceFiles: state.files.map((file) => ({
+        name: file.name,
+        size: file.size,
+        lastModified: file.lastModified || null,
+      })),
+      settings: {
+        renderScale: els.renderScale.value,
+        quantityX: els.quantityX.value,
+        quantityTolerance: els.quantityTolerance.value,
+        enhanceImage: els.enhanceImage.checked,
+        sizeFilter: els.sizeFilter.value || '',
+      },
+      rows: state.rows.map((row) => ({
+        id: row.id,
+        fileName: row.fileName || '',
+        pageNumber: row.pageNumber || 1,
+        productCode: row.productCode || '',
+        productName: cleanProductName(row.productName) || '商品名未検出',
+        ocrProductName: row.ocrProductName || '',
+        size: row.size || '',
+        quantity: validQuantity(row.quantity),
+        confidence: validQuantity(row.confidence),
+        rawLine: row.rawLine || '',
+      })),
+      warnings: state.warnings.map((warning) => ({
+        type: warning.type || 'unknown',
+        fileName: warning.fileName || '',
+        pageNumber: warning.pageNumber || 1,
+        size: warning.size || '',
+        rawLine: warning.rawLine || '',
+      })),
+    };
+  }
+
+  function saveWorkState(message = '保存しました') {
+    if (!state.rows.length) {
+      setSaveStatus('保存する抽出明細がありません', 'error');
+      updateSaveControls();
+      return false;
+    }
+    try {
+      const payload = makeWorkPayload();
+      localStorage.setItem(WORK_STATE_KEY, JSON.stringify(payload));
+      state.lastSavedAt = payload.savedAt;
+      setSaveStatus(`${message}（${formatDateTime(payload.savedAt)}）`, 'saved');
+      updateSaveControls();
+      return true;
+    } catch (error) {
+      console.warn('作業状態を保存できませんでした', error);
+      setSaveStatus('保存できませんでした。ブラウザ容量またはサイトデータ設定を確認してください。', 'error');
+      updateSaveControls();
+      return false;
+    }
+  }
+
+  function restoreWorkState() {
+    const saved = loadWorkState();
+    if (!saved || !Array.isArray(saved.rows) || !saved.rows.length) {
+      setSaveStatus('復元できる保存データがありません', 'error');
+      updateSaveControls();
+      return;
+    }
+
+    state.files = [];
+    state.rows = saved.rows.map((row) => ({
+      id: row.id || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`),
+      fileName: row.fileName || '保存データ',
+      pageNumber: validQuantity(row.pageNumber) || 1,
+      productCode: row.productCode || '',
+      productName: cleanProductName(row.productName) || '商品名未検出',
+      ocrProductName: row.ocrProductName || '',
+      size: row.size || '',
+      quantity: validQuantity(row.quantity),
+      confidence: validQuantity(row.confidence),
+      rawLine: row.rawLine || '',
+    }));
+    state.warnings = Array.isArray(saved.warnings) ? saved.warnings.map((warning) => ({
+      type: warning.type || 'unknown',
+      fileName: warning.fileName || '保存データ',
+      pageNumber: validQuantity(warning.pageNumber) || 1,
+      size: warning.size || '',
+      rawLine: warning.rawLine || '',
+    })) : [];
+
+    if (saved.settings) {
+      if (saved.settings.renderScale) els.renderScale.value = saved.settings.renderScale;
+      if (saved.settings.quantityX) els.quantityX.value = saved.settings.quantityX;
+      if (saved.settings.quantityTolerance) els.quantityTolerance.value = saved.settings.quantityTolerance;
+      if (typeof saved.settings.enhanceImage === 'boolean') els.enhanceImage.checked = saved.settings.enhanceImage;
+      els.sizeFilter.value = saved.settings.sizeFilter || '';
+    }
+
+    renderFileList();
+    renderAll();
+    els.resultSection.classList.remove('hidden');
+    els.progressArea.classList.add('hidden');
+    els.analyzeBtn.disabled = true;
+    els.clearBtn.disabled = false;
+    state.lastSavedAt = saved.savedAt || null;
+    setSaveStatus(`保存データを復元しました（${formatDateTime(saved.savedAt)}）`, 'saved');
+    updateSaveControls();
+    hideError();
+  }
+
+  function deleteSavedWorkState() {
+    if (!window.confirm('保存データを削除します。現在画面に表示中の集計結果は残りますが、復元用データは消えます。よろしいですか？')) return;
+    try {
+      localStorage.removeItem(WORK_STATE_KEY);
+      state.lastSavedAt = null;
+      setSaveStatus('保存データを削除しました', '');
+      updateSaveControls();
+    } catch (error) {
+      console.warn('保存データを削除できませんでした', error);
+      setSaveStatus('保存データを削除できませんでした', 'error');
+    }
+  }
+
+  function loadWorkState() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(WORK_STATE_KEY) || 'null');
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (error) {
+      console.warn('作業状態を読み込めませんでした', error);
+      return null;
+    }
+  }
+
+  function hasSavedWorkState() {
+    const saved = loadWorkState();
+    return Boolean(saved && Array.isArray(saved.rows) && saved.rows.length);
+  }
+
+  function updateSaveControls() {
+    const hasRows = state.rows.length > 0;
+    const hasSaved = hasSavedWorkState();
+    els.saveWorkBtn.disabled = !hasRows || state.running;
+    els.restoreWorkBtn.disabled = !hasSaved || state.running;
+    els.deleteSavedWorkBtn.disabled = !hasSaved || state.running;
+    if (!hasRows) {
+      setSaveStatusFromStorage();
+    }
+  }
+
+  function setSaveStatusFromStorage() {
+    const saved = loadWorkState();
+    if (saved && Array.isArray(saved.rows) && saved.rows.length) {
+      setSaveStatus(`保存データあり：${formatDateTime(saved.savedAt)} / ${saved.rows.length.toLocaleString('ja-JP')}行`, 'saved');
+    } else {
+      setSaveStatus('保存データなし', '');
+    }
+  }
+
+  function setSaveStatus(message, type = '') {
+    els.saveStatus.textContent = message;
+    els.saveStatus.classList.remove('saved', 'error');
+    if (type) els.saveStatus.classList.add(type);
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '日時不明';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '日時不明';
+    return new Intl.DateTimeFormat('ja-JP', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    }).format(date);
   }
 
   function renderWarnings() {
@@ -683,4 +874,8 @@
     return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
   }
   function escapeText(value) { return String(value); }
+
+  window.addEventListener('beforeunload', () => {
+    if (state.rows.length && !state.running) saveWorkState('作業内容を自動保存しました');
+  });
 })();

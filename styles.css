@@ -144,3 +144,39 @@ footer { padding: 22px; color: #7b858e; text-align: center; font-size: 12px; }
 .size-total { vertical-align: middle; background: #fffaf6; }
 .size-group-start td { border-top: 2px solid #cfd6dc; }
 .size-group-start:first-child td { border-top: 0; }
+
+/* Version 3: 作業状態の保存・復元 */
+.save-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.save-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+.save-status.saved { color: #23633a; font-weight: 800; }
+.save-status.error { color: var(--error); font-weight: 800; }
+.save-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+button.danger-secondary {
+  color: var(--error);
+  background: white;
+  border-color: #efc0bc;
+}
+button.danger-secondary:hover:not(:disabled) {
+  border-color: var(--error);
+  background: #fff7f6;
+}
+
+@media (max-width: 560px) {
+  .save-actions button { width: 100%; }
+  .save-status { width: 100%; text-align: center; }
+}
